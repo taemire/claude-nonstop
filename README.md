@@ -1,7 +1,15 @@
-# claude-nonstop
+# claude-nonstop (taemire fork)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-green.svg)](https://nodejs.org/)
+
+> **Fork Notice**
+> This is a personally maintained fork of [rchaz/claude-nonstop](https://github.com/rchaz/claude-nonstop).
+> The upstream project appears to be inactive. This fork exists to apply bug fixes and improvements
+> as needed for personal use — and is kept public in case it's useful to others.
+>
+> **Patches applied over upstream:**
+> - `fix: normalizePercent misreads utilization value 1.0 as 100% instead of 1%` — see [upstream issue #11](https://github.com/rchaz/claude-nonstop/issues/11)
 
 Multi-account switching + Slack remote access for Claude Code.
 
