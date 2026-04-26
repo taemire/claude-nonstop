@@ -16,9 +16,9 @@ describe('scoring pipeline integration', () => {
 
   it('mock fetch → checkAllUsage → pickBestAccount', async () => {
     const usageData = {
-      'sk-ant-oat01-work': { five_hour: { utilization: 0.80 }, seven_day: { utilization: 0.60 } },
-      'sk-ant-oat01-personal': { five_hour: { utilization: 0.20 }, seven_day: { utilization: 0.10 } },
-      'sk-ant-oat01-team': { five_hour: { utilization: 0.50 }, seven_day: { utilization: 0.40 } },
+      'sk-ant-oat01-work': { five_hour: { utilization: 80 }, seven_day: { utilization: 60 } },
+      'sk-ant-oat01-personal': { five_hour: { utilization: 20 }, seven_day: { utilization: 10 } },
+      'sk-ant-oat01-team': { five_hour: { utilization: 50 }, seven_day: { utilization: 40 } },
     };
 
     globalThis.fetch = async (url, opts) => {
@@ -54,7 +54,7 @@ describe('scoring pipeline integration', () => {
       }
       return {
         ok: true,
-        json: async () => ({ five_hour: { utilization: 0.50 }, seven_day: { utilization: 0.30 } }),
+        json: async () => ({ five_hour: { utilization: 50 }, seven_day: { utilization: 30 } }),
       };
     };
 
@@ -87,9 +87,9 @@ describe('scoring pipeline integration', () => {
     globalThis.fetch = async (url, opts) => {
       const token = opts.headers.Authorization.replace('Bearer ', '');
       const utilizations = {
-        'sk-ant-oat01-a': 0.10,
-        'sk-ant-oat01-b': 0.30,
-        'sk-ant-oat01-c': 0.50,
+        'sk-ant-oat01-a': 10,
+        'sk-ant-oat01-b': 30,
+        'sk-ant-oat01-c': 50,
       };
       const util = utilizations[token] || 0;
       return {

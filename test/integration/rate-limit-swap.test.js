@@ -743,9 +743,9 @@ describe('rate limit detection + scoring pipeline', () => {
     globalThis.fetch = async (url, opts) => {
       const token = opts.headers.Authorization.replace('Bearer ', '');
       const data = {
-        'sk-ant-oat01-rate-limited': { five_hour: { utilization: 0.99 }, seven_day: { utilization: 0.85 } },
-        'sk-ant-oat01-fresh': { five_hour: { utilization: 0.05 }, seven_day: { utilization: 0.10 } },
-        'sk-ant-oat01-moderate': { five_hour: { utilization: 0.40 }, seven_day: { utilization: 0.30 } },
+        'sk-ant-oat01-rate-limited': { five_hour: { utilization: 99 }, seven_day: { utilization: 85 } },
+        'sk-ant-oat01-fresh': { five_hour: { utilization: 5 }, seven_day: { utilization: 10 } },
+        'sk-ant-oat01-moderate': { five_hour: { utilization: 40 }, seven_day: { utilization: 30 } },
       };
       return { ok: true, json: async () => data[token] || {} };
     };
@@ -771,7 +771,7 @@ describe('rate limit detection + scoring pipeline', () => {
   it('all accounts rate-limited → returns null', async () => {
     globalThis.fetch = async () => ({
       ok: true,
-      json: async () => ({ five_hour: { utilization: 1.0 }, seven_day: { utilization: 0.95 } }),
+      json: async () => ({ five_hour: { utilization: 100 }, seven_day: { utilization: 95 } }),
     });
 
     const accounts = [
