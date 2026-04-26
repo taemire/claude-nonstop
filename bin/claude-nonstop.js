@@ -17,6 +17,7 @@ import { checkAllUsage, checkUsage, fetchProfile } from '../lib/usage.js';
 import { pickBestAccount, pickByPriority } from '../lib/scorer.js';
 import { run } from '../lib/runner.js';
 import { reauthAccount, reauthExpiredAccounts, silentRefresh } from '../lib/reauth.js';
+import { getAdminDisabledNames, loadBlocklist, clearAdminDisabled } from '../lib/admin-disabled.js';
 import { isMacOS } from '../lib/platform.js';
 import { installService, uninstallService, restartService, getServiceStatus, isServiceInstalled, LOG_PATH } from '../lib/service.js';
 
@@ -85,6 +86,10 @@ switch (command) {
 
   case 'init':
     cmdInit(args[1]);
+    break;
+
+  case 'admin-disabled':
+    await cmdAdminDisabled(args.slice(1));
     break;
 
   case 'help':
@@ -426,13 +431,15 @@ async function cmdStatus() {
     // Merge profiles into usage results
     const profileMap = Object.fromEntries(authenticated.map((a, i) => [a.name, profiles[i]]));
 
-    // Find best account for display
-    const best = pickBestAccount(withUsage);
+    // Find best account for display, skipping admin-disabled blocklist
+    const blocklist = getAdminDisabledNames();
+    const best = pickBestAccount(withUsage, undefined, { excludeNames: blocklist });
     const bestName = best?.account?.name;
 
     for (const account of withUsage) {
       const isBest = account.name === bestName;
-      const marker = isBest ? ' <-- best' : '';
+      const isBlocked = blocklist.has(account.name);
+      const marker = isBest ? ' <-- best' : (isBlocked ? ' [admin-disabled]' : '');
       const userInfo = formatUserInfo(profileMap[account.name] || {});
       const priLabel = account.priority != null ? ` (priority: ${account.priority})` : '';
 
@@ -583,7 +590,7 @@ async function cmdRun(claudeArgs) {
 
     // Only use priority sorting when at least one account has a priority set
     const hasPriorities = withUsage.some(a => a.priority != null);
-    const best = pickBestAccount(withUsage, undefined, { usePriority: hasPriorities });
+    const best = pickBestAccount(withUsage, undefined, { usePriority: hasPriorities, excludeNames: getAdminDisabledNames() });
 
     if (best) {
       selectedAccount = best.account;
@@ -724,7 +731,7 @@ async function cmdResume(resumeArgs) {
     }
 
     const hasPriorities = withUsage.some(a => a.priority != null);
-    const best = pickBestAccount(withUsage, undefined, { usePriority: hasPriorities });
+    const best = pickBestAccount(withUsage, undefined, { usePriority: hasPriorities, excludeNames: getAdminDisabledNames() });
 
     if (best) {
       selectedAccount = best.account;
@@ -791,7 +798,7 @@ async function cmdUse(useArgs) {
     }
 
     const withUsage = await checkAllUsage(authenticated);
-    const best = pickBestAccount(withUsage);
+    const best = pickBestAccount(withUsage, undefined, { excludeNames: getAdminDisabledNames() });
 
     if (!best) {
       console.error('Error: No suitable accounts found.');
@@ -818,7 +825,7 @@ async function cmdUse(useArgs) {
     }
 
     const withUsage = await checkAllUsage(authenticated);
-    const best = pickByPriority(withUsage);
+    const best = pickByPriority(withUsage, { excludeNames: getAdminDisabledNames() });
 
     if (!best) {
       console.error('Error: No suitable accounts found.');
@@ -883,6 +890,64 @@ async function cmdSetPriority(priorityArgs) {
   } catch (err) {
     console.error(`Error: ${err.message}`);
     process.exit(1);
+  }
+}
+
+// ─── Admin-disabled blocklist ───────────────────────────────────────────────
+
+async function cmdAdminDisabled(adArgs) {
+  const flag = adArgs[0];
+
+  // --clear [name] — remove one (or all) entries from the blocklist
+  if (flag === '--clear') {
+    const target = adArgs[1];
+    const { cleared } = clearAdminDisabled(target);
+    if (cleared.length === 0) {
+      console.error(target
+        ? `No blocklist entry for "${target}".`
+        : 'Blocklist is already empty.');
+      return;
+    }
+    console.log(`Cleared admin-disabled blocklist entries: ${cleared.join(', ')}`);
+    return;
+  }
+
+  if (flag === '--help' || flag === '-h' || flag === 'help') {
+    console.log(`
+claude-nonstop admin-disabled — Manage admin-disabled blocklist
+
+Usage:
+  claude-nonstop admin-disabled              List entries (with TTL)
+  claude-nonstop admin-disabled --clear      Remove all entries
+  claude-nonstop admin-disabled --clear <n>  Remove entry for account <n>
+
+Accounts are added automatically when Claude Code reports
+"Your usage allocation has been disabled by your admin". Entries
+auto-expire after 24 hours; use --clear to reset earlier.
+`.trim());
+    return;
+  }
+
+  // Default: list current entries
+  const entries = loadBlocklist();
+  const names = Object.keys(entries);
+  if (names.length === 0) {
+    console.log('Admin-disabled blocklist is empty.');
+    return;
+  }
+  console.log('Admin-disabled accounts:\n');
+  const now = Date.now();
+  for (const name of names) {
+    const entry = entries[name];
+    const disabledMs = Date.parse(entry.disabledAt);
+    const expiresMs = disabledMs + entry.ttlHours * 60 * 60 * 1000;
+    const remainingMs = Math.max(0, expiresMs - now);
+    const remainingHr = (remainingMs / (60 * 60 * 1000)).toFixed(1);
+    console.log(`  ${name}`);
+    console.log(`    disabledAt: ${entry.disabledAt}`);
+    console.log(`    expires in: ${remainingHr}h`);
+    if (entry.reason) console.log(`    reason:     ${entry.reason}`);
+    console.log('');
   }
 }
 
