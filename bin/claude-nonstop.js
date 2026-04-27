@@ -431,9 +431,12 @@ async function cmdStatus() {
     // Merge profiles into usage results
     const profileMap = Object.fromEntries(authenticated.map((a, i) => [a.name, profiles[i]]));
 
-    // Find best account for display, skipping admin-disabled blocklist
+    // Find best account for display, skipping admin-disabled blocklist.
+    // Mirror the run/use selection by enabling priority mode whenever any
+    // account has a priority set, so the `<-- best` marker matches reality.
     const blocklist = getAdminDisabledNames();
-    const best = pickBestAccount(withUsage, undefined, { excludeNames: blocklist });
+    const hasPriorities = withUsage.some(a => a.priority != null);
+    const best = pickBestAccount(withUsage, undefined, { usePriority: hasPriorities, excludeNames: blocklist });
     const bestName = best?.account?.name;
 
     for (const account of withUsage) {
