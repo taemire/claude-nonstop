@@ -6,8 +6,10 @@ import {
   PRIORITY_THRESHOLD,
   effectiveAvailability,
   axisHeadroomRate,
+  absoluteRemaining,
   SESSION_WINDOW_MS,
   WEEKLY_WINDOW_MS,
+  ABSOLUTE_GAP_THRESHOLD_PP,
 } from '../../../lib/scorer.js';
 
 const makeAccount = (name, sessionPercent, weeklyPercent, opts = {}) => ({
@@ -333,16 +335,18 @@ describe('axisHeadroomRate', () => {
 });
 
 describe('pickBestAccount with time-weighted scoring', () => {
-  it('prefers near-reset account over fresh account when both have similar headroom', () => {
-    // Core motivation: weekly 99% with 1h to reset has more usable bandwidth
-    // (1 %/h) than a fresh 0% with 168h (~0.595 %/h).
+  it('prefers near-reset account over fresh account when raw remaining is comparable (within hybrid band)', () => {
+    // Drain-before-reset still applies, but only inside the absolute-remaining band.
+    // Both accounts at 50% utilization (same absRem 50) → gap 0 → rate decides.
+    // near-reset's weekly resets in 1h vs long-runway's 100h → near-reset has the
+    // higher headroom rate and wins the tiebreaker.
     const now = new Date('2026-04-26T00:00:00Z');
     const accounts = [
-      makeAccount('fresh', 0, 0, {
+      makeAccount('long-runway', 0, 50, {
         sessionResetsAt: inHours(5, now),
-        weeklyResetsAt: inHours(168, now),
+        weeklyResetsAt: inHours(100, now),
       }),
-      makeAccount('near-reset', 50, 99, {
+      makeAccount('near-reset', 0, 50, {
         sessionResetsAt: inHours(5, now),
         weeklyResetsAt: inHours(1, now),
       }),
@@ -406,21 +410,159 @@ describe('pickBestAccount with time-weighted scoring', () => {
   });
 
   it('accepts options.now for deterministic test injection', () => {
+    // Both accounts at absRem 50 (same bottleneck remaining) → falls to rate-based tiebreaker.
+    // imminent's near-reset weekly window has the higher %/h, so it wins.
     const t1 = new Date('2026-04-26T00:00:00Z');
-    const t2 = new Date('2026-04-26T03:30:00Z');  // 3.5h later — second account closer to weekly reset
+    const t2 = new Date('2026-04-26T03:30:00Z');  // 3.5h later — imminent closer to weekly reset
     const accounts = [
       makeAccount('long-runway', 0, 50, {
         sessionResetsAt: inHours(5, t1),
         weeklyResetsAt: inHours(100, t1),
       }),
-      makeAccount('imminent', 0, 90, {
+      makeAccount('imminent', 0, 50, {
         sessionResetsAt: inHours(5, t1),
         weeklyResetsAt: inHours(4, t1),  // resets in 4h relative to t1, in 0.5h relative to t2
       }),
     ];
-    // At t1: long-runway has bottleneck (100-50)/100=0.5 %/h, imminent (100-90)/4=2.5 %/h → imminent wins
     assert.equal(pickBestAccount(accounts, undefined, { now: t1 }).account.name, 'imminent');
-    // At t2: imminent's weekly remaining is 0.5h but floored at 5min → (100-90)/(5/60)=120 %/h still wins
     assert.equal(pickBestAccount(accounts, undefined, { now: t2 }).account.name, 'imminent');
+  });
+});
+
+describe('pickBestAccount hybrid (raw remaining vs rate)', () => {
+  it('prefers raw remaining when absolute gap exceeds threshold', () => {
+    // Real-world case that motivated the hybrid (2026-05-01 user report):
+    // a "fresh" backup account at session 0% / weekly 9% should win over an
+    // active account at session 73% / weekly 62%, even though the active one
+    // has a higher %/h drain rate due to imminent weekly reset.
+    const now = new Date('2026-05-01T00:00:00Z');
+    const accounts = [
+      makeAccount('busy', 73, 62, {
+        sessionResetsAt: inHours(3.15, now),
+        weeklyResetsAt: inHours(42.32, now),
+        priority: 1,
+      }),
+      makeAccount('idle', 0, 9, {
+        sessionResetsAt: null,                // session window fresh
+        weeklyResetsAt: inHours(139.32, now),
+        priority: 1,
+      }),
+    ];
+    const result = pickBestAccount(accounts, undefined, { now, usePriority: true });
+    assert.equal(result.account.name, 'idle');
+    assert.ok(result.reason.includes('absolute remaining'),
+      `reason should reflect raw-remaining path: ${result.reason}`);
+  });
+
+  it('falls back to rate-based tiebreaker within the hybrid band', () => {
+    // absRem 60 vs 50 → gap 10pp ≤ 20pp → rate decides.
+    const now = new Date('2026-05-01T00:00:00Z');
+    const accounts = [
+      makeAccount('a', 40, 40, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(168, now),    // long runway → low rate
+      }),
+      makeAccount('b', 50, 50, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(10, now),     // imminent reset → high rate
+      }),
+    ];
+    // a: bottleneck min(60/5, 60/168) = 0.357 %/h
+    // b: bottleneck min(50/5, 50/10) = 5.0 %/h
+    // Within band, b wins by rate even though a has slightly more raw remaining.
+    const result = pickBestAccount(accounts, undefined, { now });
+    assert.equal(result.account.name, 'b');
+    assert.ok(result.reason.includes('%/h'),
+      `reason should reflect rate path: ${result.reason}`);
+  });
+
+  it('treats gap exactly at threshold as within-band (strict >)', () => {
+    // absRem 80 vs 60 → gap = 20pp = threshold (not >) → rate decides.
+    const now = new Date('2026-05-01T00:00:00Z');
+    const accounts = [
+      makeAccount('rawer', 20, 20, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(168, now),
+      }),
+      makeAccount('rater', 40, 40, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(2, now),      // very near reset → high rate
+      }),
+    ];
+    // rawer: min(80/5, 80/168) = 0.476
+    // rater: min(60/5, 60/2) = 12.0
+    const result = pickBestAccount(accounts, undefined, { now });
+    assert.equal(result.account.name, 'rater');
+  });
+
+  it('priority-mode tiebreaker also uses hybrid', () => {
+    // Two priority-1 accounts: raw-remaining gap dominates.
+    const now = new Date('2026-05-01T00:00:00Z');
+    const accounts = [
+      makeAccount('busy-pri1', 73, 62, {
+        sessionResetsAt: inHours(3, now),
+        weeklyResetsAt: inHours(42, now),
+        priority: 1,
+      }),
+      makeAccount('idle-pri1', 0, 9, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(139, now),
+        priority: 1,
+      }),
+    ];
+    const result = pickBestAccount(accounts, undefined, { usePriority: true, now });
+    assert.equal(result.account.name, 'idle-pri1');
+  });
+
+  it('priority hierarchy still beats raw remaining (lower priority number wins)', () => {
+    // Hybrid only kicks in within the same priority bucket.
+    const now = new Date('2026-05-01T00:00:00Z');
+    const accounts = [
+      makeAccount('pri1-busy', 70, 60, {
+        sessionResetsAt: inHours(3, now),
+        weeklyResetsAt: inHours(42, now),
+        priority: 1,
+      }),
+      makeAccount('pri2-idle', 0, 5, {
+        sessionResetsAt: inHours(5, now),
+        weeklyResetsAt: inHours(168, now),
+        priority: 2,
+      }),
+    ];
+    const result = pickBestAccount(accounts, undefined, { usePriority: true, now });
+    assert.equal(result.account.name, 'pri1-busy');
+  });
+});
+
+describe('absoluteRemaining', () => {
+  it('returns 0 for null usage', () => {
+    assert.equal(absoluteRemaining(null), 0);
+  });
+
+  it('returns 100 minus the higher of session/weekly', () => {
+    assert.equal(absoluteRemaining({ sessionPercent: 30, weeklyPercent: 60 }), 40);
+    assert.equal(absoluteRemaining({ sessionPercent: 70, weeklyPercent: 20 }), 30);
+  });
+
+  it('clamps at 0 when utilization exceeds 100', () => {
+    assert.equal(absoluteRemaining({ sessionPercent: 110, weeklyPercent: 50 }), 0);
+  });
+
+  it('clamps at 100 when missing fields', () => {
+    assert.equal(absoluteRemaining({}), 100);
+  });
+});
+
+describe('ABSOLUTE_GAP_THRESHOLD_PP', () => {
+  it('defaults to 20 percentage points', () => {
+    // The constant is loaded once at module import; test verifies the default
+    // applies when no env override was set when this test process started.
+    if (process.env.CLAUDE_NONSTOP_HEADROOM_GAP_PP == null
+        || process.env.CLAUDE_NONSTOP_HEADROOM_GAP_PP === '') {
+      assert.equal(ABSOLUTE_GAP_THRESHOLD_PP, 20);
+    } else {
+      // Honor whatever the env asked for, but at least sanity-check it's a number.
+      assert.ok(Number.isFinite(ABSOLUTE_GAP_THRESHOLD_PP));
+    }
   });
 });
