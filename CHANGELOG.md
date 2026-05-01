@@ -9,10 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Manual swap signal — `SIGUSR1` now triggers an immediate swap to the next best account without invoking the admin-disabled blocklist or the sleep-until-reset branch. Use `kill -USR1 <claude-nonstop-pid>` (or `pkill -USR1 -f claude-nonstop`) when an upstream CLI banner-format change causes automatic detection to miss a stuck session.
+- `normalizeBannerBuffer()` helper — strips ANSI sequences, removes Unicode box-drawing/block-element glyphs (U+2500–U+259F), and collapses whitespace runs into a single space. Used by admin-disable detection so the genuine box-drawn banner reassembles into a contiguous string before regex matching.
 
 ### Changed
 
-- Output buffer enlarged from 4 KB → 8 KB (`OUTPUT_BUFFER_MAX`) and trim retention from 2 KB → 4 KB (`OUTPUT_BUFFER_TRIM`). 50% retention guarantees the genuine two-line admin-disable banner (≈150 bytes) cannot be split across a trim boundary even under bursty PTY output that briefly fills the buffer.
+- Output buffer enlarged from 4 KB → 8 KB (`OUTPUT_BUFFER_MAX`) and trim retention from 2 KB → 4 KB (`OUTPUT_BUFFER_TRIM`). 50% retention guarantees the genuine admin-disable banner cannot be split across a trim boundary even under bursty PTY output that briefly fills the buffer.
+
+### Fixed
+
+- Admin-disable detection no longer requires both banner sentences on adjacent lines (regression from 3ae6cd5) nor the tightened single-sentence form (b1f3b85). Both tightenings missed the genuine Claude Code banner because the disabled-state sentence is wrapped across PTY lines bounded by `│` glyphs (e.g. `│ Your usage allocation has been disabled by  │\n│ your admin       │`), so the literal phrase was never contiguous in the buffer. The detector now applies `normalizeBannerBuffer()` (strip ANSI + box-drawing + collapse whitespace) before testing the simplified single-sentence pattern. Trade-off: model output or pasted logs containing the exact phrase will also trigger a swap; bypass via `CLAUDE_NONSTOP_DISABLE_ADMIN_DETECT=1`.
 
 ## [0.2.0] - 2025-06-15
 
