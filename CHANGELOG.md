@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Manual swap signal — `SIGUSR1` now triggers an immediate swap to the next best account without invoking the admin-disabled blocklist or the sleep-until-reset branch. Use `kill -USR1 <claude-nonstop-pid>` (or `pkill -USR1 -f claude-nonstop`) when an upstream CLI banner-format change causes automatic detection to miss a stuck session.
+
+### Changed
+
+- Output buffer enlarged from 4 KB → 8 KB (`OUTPUT_BUFFER_MAX`) and trim retention from 2 KB → 4 KB (`OUTPUT_BUFFER_TRIM`). 50% retention guarantees the genuine two-line admin-disable banner (≈150 bytes) cannot be split across a trim boundary even under bursty PTY output that briefly fills the buffer.
+
 ## [0.2.0] - 2025-06-15
 
 ### Added
