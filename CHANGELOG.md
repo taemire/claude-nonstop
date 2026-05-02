@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`swap <target>` command** — ergonomic mid-session account swap precursor.
+  A running Claude Code process loads OAuth credentials at startup and cannot
+  swap them in-place; the proper procedure is exit → `use <target>` →
+  `resume <id> --account=<target>`. `swap` does the validation up front
+  (target exists, has token, quota previewed) and auto-detects the current
+  session id for the cwd, then prints the exact `resume` 1-liner to paste
+  after exit. Catches typos / missing creds BEFORE the user kills their
+  active session.
+  - `--session=<id>` to override session auto-detection
+  - `--quiet` to print only the resume command (script-friendly, e.g. `swap fourth --quiet | pbcopy`)
 - Manual swap signal — `SIGUSR1` now triggers an immediate swap to the next best account without invoking the admin-disabled blocklist or the sleep-until-reset branch. Use `kill -USR1 <claude-nonstop-pid>` (or `pkill -USR1 -f claude-nonstop`) when an upstream CLI banner-format change causes automatic detection to miss a stuck session.
 - `normalizeBannerBuffer()` helper — strips ANSI sequences, removes Unicode box-drawing/block-element glyphs (U+2500–U+259F), and collapses whitespace runs into a single space. Used by admin-disable detection so the genuine box-drawn banner reassembles into a contiguous string before regex matching.
 - `ADMIN_DISABLE_KEYWORDS` + `detectAdminDisabled()` — drift-tolerant keyword-AND fallback for admin-disable detection. When all four markers (`usage allocation`, `has been disabled`, `/extra-usage`, `by your admin`) appear in the normalized buffer, the swap fires even if the literal sentence was splintered by upstream renderer choices (cursor positioning, alternate-screen redraws, glyphs outside the box-drawing range). False-positive risk stays low: a model paraphrasing the disabled state may echo one or two markers, but emitting all four including the literal `/extra-usage` slash command within an 8 KB window is implausible.
