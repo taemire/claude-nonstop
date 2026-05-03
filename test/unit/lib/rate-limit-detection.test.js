@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RATE_LIMIT_PATTERN, stripAnsi, findEarliestReset, formatDuration, sleep, EXHAUSTION_THRESHOLD, MAX_SLEEP_MS } from '../../../lib/runner.js';
+import {
+  RATE_LIMIT_PATTERN,
+  stripAnsi,
+  findEarliestReset,
+  formatDuration,
+  sleep,
+  EXHAUSTION_THRESHOLD,
+  MAX_SLEEP_MS,
+  ADMIN_DISABLE_VERIFY_THRESHOLD,
+  MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES,
+} from '../../../lib/runner.js';
 import { effectiveUtilization } from '../../../lib/scorer.js';
 
 describe('RATE_LIMIT_PATTERN', () => {
@@ -415,5 +425,24 @@ describe('EXHAUSTION_THRESHOLD and MAX_SLEEP_MS constants', () => {
     // Over the cap
     assert.equal(clamp(12 * 60 * 60 * 1000), MAX_SLEEP_MS); // 12h clamped to 6h
     assert.equal(clamp(24 * 60 * 60 * 1000), MAX_SLEEP_MS); // 24h clamped to 6h
+  });
+});
+
+describe('Admin-disabled false-positive verification constants', () => {
+  it('ADMIN_DISABLE_VERIFY_THRESHOLD is a sane percentage', () => {
+    assert.equal(typeof ADMIN_DISABLE_VERIFY_THRESHOLD, 'number');
+    assert.ok(ADMIN_DISABLE_VERIFY_THRESHOLD > 0 && ADMIN_DISABLE_VERIFY_THRESHOLD <= 100);
+    // Must be at-or-below the hard exhaustion threshold so that an account
+    // flagged "near-exhausted" by the picker is also flagged by this check
+    // (avoids the case where the picker would route work elsewhere yet the
+    // verify gate decides the same account is healthy enough to retry).
+    assert.ok(ADMIN_DISABLE_VERIFY_THRESHOLD <= EXHAUSTION_THRESHOLD);
+  });
+
+  it('MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES is a small positive integer', () => {
+    assert.equal(typeof MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES, 'number');
+    assert.ok(Number.isInteger(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES));
+    assert.ok(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES >= 1);
+    assert.ok(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES <= 10);
   });
 });
