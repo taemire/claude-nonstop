@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RATE_LIMIT_PATTERN,
+  RATE_LIMIT_PATTERN_LOOSE,
+  detectRateLimit,
   stripAnsi,
   findEarliestReset,
   formatDuration,
@@ -444,5 +446,97 @@ describe('Admin-disabled false-positive verification constants', () => {
     assert.ok(Number.isInteger(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES));
     assert.ok(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES >= 1);
     assert.ok(MAX_CONSECUTIVE_ADMIN_FALSE_POSITIVES <= 10);
+  });
+});
+
+describe('detectRateLimit — canonical phrase', () => {
+  it('matches the canonical "Limit reached · resets …" form', () => {
+    const result = detectRateLimit('Limit reached · resets in 2h 30m\n');
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase');
+    assert.equal(result.resetTime, 'in 2h 30m');
+  });
+
+  it('matches "You\'ve hit your limit · resets …"', () => {
+    const result = detectRateLimit("You've hit your limit · resets 8am (America/Los_Angeles)");
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase');
+    assert.equal(result.resetTime, '8am (America/Los_Angeles)');
+  });
+
+  it('returns matched=false on unrelated text', () => {
+    const result = detectRateLimit('Working on task...\n');
+    assert.equal(result.matched, false);
+    assert.equal(result.via, null);
+    assert.equal(result.resetTime, null);
+  });
+});
+
+describe('detectRateLimit — loose drift fallback', () => {
+  it('matches "reached your usage limit — resets …" (em-dash separator)', () => {
+    const result = detectRateLimit('reached your usage limit — resets in 1h 5m\n');
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase-loose');
+    assert.equal(result.resetTime, 'in 1h 5m');
+  });
+
+  it('matches "Rate limit hit | resumes in …" (pipe separator + resumes verb)', () => {
+    const result = detectRateLimit('Rate limit hit | resumes in 45m\n');
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase-loose');
+    assert.equal(result.resetTime, 'in 45m');
+  });
+
+  it('matches "You\'ve hit your rate limit, available again …"', () => {
+    const result = detectRateLimit("You've hit your rate limit, available again at 3pm UTC\n");
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase-loose');
+    assert.equal(result.resetTime, 'at 3pm UTC');
+  });
+
+  it('matches "Rate limit reached: try again in …" (colon separator)', () => {
+    const result = detectRateLimit('Rate limit reached: try again in 30m\n');
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase-loose');
+    assert.equal(result.resetTime, 'in 30m');
+  });
+
+  it('canonical form takes precedence over loose form when both could match', () => {
+    // Canonical regex matches → via must be "phrase" not "phrase-loose"
+    const result = detectRateLimit('Limit reached · resets in 1h\n');
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase');
+  });
+
+  it('does NOT match prose mentioning rate limits without the four-piece structure', () => {
+    // No "limit hit/reached" phrase
+    assert.equal(detectRateLimit('the quota will reset in 2h\n').matched, false);
+    // No recovery verb
+    assert.equal(detectRateLimit('Rate limit reached today at 3pm\n').matched, false);
+    // No time string at the end
+    assert.equal(detectRateLimit('Limit reached · resets\n').matched, false);
+    // No separator
+    assert.equal(detectRateLimit('reached your usage limit resets in 1h\n').matched, false);
+  });
+
+  it('matches after ANSI stripping (loose path)', () => {
+    const colored = '\x1b[31mRate limit hit\x1b[0m | \x1b[2mresumes in 1h\x1b[0m\n';
+    const result = detectRateLimit(stripAnsi(colored));
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase-loose');
+    assert.equal(result.resetTime, 'in 1h');
+  });
+});
+
+describe('RATE_LIMIT_PATTERN_LOOSE export', () => {
+  it('is a RegExp with case-insensitive flag', () => {
+    assert.ok(RATE_LIMIT_PATTERN_LOOSE instanceof RegExp);
+    assert.ok(RATE_LIMIT_PATTERN_LOOSE.flags.includes('i'));
+  });
+
+  it('captures the time string in group 1 (same shape as canonical)', () => {
+    const m = 'Rate limit hit | resumes in 45m\n'.match(RATE_LIMIT_PATTERN_LOOSE);
+    assert.ok(m);
+    assert.equal(m[1].trim(), 'in 45m');
   });
 });
