@@ -32,6 +32,13 @@ describe('RATE_LIMIT_PATTERN', () => {
     assert.equal(match[1].trim(), 'Dec 17 at 6am (Europe/Oslo)');
   });
 
+  it('matches "You\'ve hit your session limit · resets 7pm (Asia/Seoul)" (newer banner)', () => {
+    const input = "You've hit your session limit · resets 7pm (Asia/Seoul)";
+    const match = RATE_LIMIT_PATTERN.exec(input);
+    assert.ok(match, 'pattern should match the session-limit variant');
+    assert.equal(match[1].trim(), '7pm (Asia/Seoul)');
+  });
+
   it('matches with bullet • instead of ·', () => {
     const input = 'Limit reached • resets in 1h 15m';
     const match = RATE_LIMIT_PATTERN.exec(input);
@@ -462,6 +469,20 @@ describe('detectRateLimit — canonical phrase', () => {
     assert.equal(result.matched, true);
     assert.equal(result.via, 'phrase');
     assert.equal(result.resetTime, '8am (America/Los_Angeles)');
+  });
+
+  it('matches "You\'ve hit your session limit · resets 7pm (Asia/Seoul)"', () => {
+    const result = detectRateLimit("You've hit your session limit · resets 7pm (Asia/Seoul)");
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase');
+    assert.equal(result.resetTime, '7pm (Asia/Seoul)');
+  });
+
+  it('matches "You\'ve hit your session limit · resets 12:20am (Asia/Seoul)"', () => {
+    const result = detectRateLimit("You've hit your session limit · resets 12:20am (Asia/Seoul)");
+    assert.equal(result.matched, true);
+    assert.equal(result.via, 'phrase');
+    assert.equal(result.resetTime, '12:20am (Asia/Seoul)');
   });
 
   it('returns matched=false on unrelated text', () => {
