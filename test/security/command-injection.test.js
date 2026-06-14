@@ -20,6 +20,7 @@ describe('security: no exec/execSync with string interpolation', () => {
     'lib/config.js',
     'lib/session.js',
     'lib/reauth.js',
+    'lib/notify.js',
     'remote/webhook.cjs',
     'remote/hook-notify.cjs',
     'remote/channel-manager.cjs',
@@ -44,7 +45,7 @@ describe('security: no exec/execSync with string interpolation', () => {
     // Exclude files that have no subprocess calls (pure logic modules)
     const excluded = [
       'remote/start-webhook.cjs', 'remote/load-env.cjs', 'remote/paths.cjs',
-      'lib/platform.js', 'lib/scorer.js', 'lib/usage.js',
+      'lib/platform.js', 'lib/scorer.js', 'lib/usage.js', 'lib/admin-disabled.js',
     ];
     const reallyMissing = missing.filter(f => !excluded.includes(f));
 
